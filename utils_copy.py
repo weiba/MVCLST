@@ -4,6 +4,12 @@ from sklearn import metrics
 import scanpy as sc
 import ot
 from sklearn.decomposition import PCA
+from scipy.spatial import distance
+from scipy.cluster import hierarchy
+from scipy.optimize import linear_sum_assignment
+import glob
+import os
+import matplotlib.pyplot as plt
 
 
 def mclust_R(adata, num_cluster, modelNames='EEE', used_obsm='emb_pca', random_seed=2020):
@@ -234,3 +240,72 @@ def search_res(adata, n_clusters, method='leiden', use_rep='emb', start=0.1, end
     assert label==1, "Resolution is not found. Please try bigger range or smaller step!." 
        
     return res    
+
+def convert_labels(labels):
+    """
+    convert labels to 0,1, 2, ...
+    :param labels:
+    :return:
+    """
+    label_dict = dict()
+    for i, label in enumerate(np.unique(labels)):
+        label_dict[label] = i
+    new_labels = np.zeros_like(labels)
+    for i, label in enumerate(labels):
+        new_labels[i] = label_dict[label]
+    return new_labels
+
+def compute_consensus_matrix(clustering_results):
+    """
+    Compute the consensus matrix from M times clustering results.
+    Parameters:
+    -- clustering_results: numpy array of shape (M, n)
+        M times clustering results, where M is the number of times clustering was performed
+        and n is the number of data points or elements in the clustering results.
+    Returns:
+    -- consensus_matrix: numpy array of shape (n, n)
+        Consensus matrix, where n is the number of data points or elements in the clustering results.
+    """
+    M, n = clustering_results.shape
+    # Compute dissimilarity matrix between clustering results using cdist
+    dissimilarity_matrix = distance.cdist(clustering_results, clustering_results, metric='hamming')
+    # Compute consensus matrix using linear sum assignment
+    row_ind, col_ind = linear_sum_assignment(dissimilarity_matrix)
+    consensus_matrix = np.zeros((n, n))
+    for i, j in zip(row_ind, col_ind):
+        consensus_matrix += (clustering_results[i][:, np.newaxis] == clustering_results[j])
+    # Divide the consensus matrix by the number of comparisons to obtain the consensus percentages
+    consensus_matrix /= M
+    return consensus_matrix
+
+def plot_clustered_consensus_matrix(cmat, n_clusters, method="average", resolution=0.5,
+                                    figsize=(5, 5)):
+    n_samples = cmat.shape[0]
+    linkage_matrix = hierarchy.linkage(cmat, method='average', metric='euclidean')
+    cluster_labels = hierarchy.fcluster(linkage_matrix, n_clusters, criterion='maxclust')
+    visualization_clusters = hierarchy.fcluster(linkage_matrix, int(n_samples * resolution), criterion='maxclust')
+    sorted_indices = np.argsort(visualization_clusters)
+    sorted_cmat = cmat[sorted_indices][:, sorted_indices]
+    figure, ax = plt.subplots(1, 1, figsize=figsize)
+    ax.imshow(sorted_cmat, cmap='magma', interpolation='nearest')
+    return figure, cluster_labels
+
+def consensus_clustering(self, n_clusters, name="cluster_labels.npy", show_plot=False):
+    label_files = glob.glob(self.save_dir + f"/version_*/{name}")
+    labels_list = list(map(lambda file: np.load(file), label_files))
+    labels_list = np.vstack(labels_list)
+    cons_mat = compute_consensus_matrix(labels_list)
+    if show_plot:
+        figure, consensus_labels = plot_clustered_consensus_matrix(cons_mat, n_clusters)
+        figure.savefig(os.path.join(self.save_dir,
+                                    "consensus_clustering_{}_clusters.png".format(n_clusters)), dpi=300)
+        print("Save consensus clustering plot to {}".format(os.path.join(self.save_dir, "consensus_clustering.png")))
+        # delete the figure
+        del figure
+    else:
+        linkage_matrix = hierarchy.linkage(cons_mat, method='average', metric='euclidean')
+        consensus_labels = hierarchy.fcluster(linkage_matrix, n_clusters, criterion='maxclust')
+    consensus_labels = convert_labels(consensus_labels)
+    self.consensus_labels = consensus_labels    
+    np.save(os.path.join(self.save_dir, "consensus_labels.npy"), consensus_labels)
+    return consensus_labels

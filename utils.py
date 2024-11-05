@@ -140,7 +140,7 @@ def plot_domains(adata,
     else:
         pass 
 def found_gene_count(adata,cell,gene):
-        # 指定特定类型的细胞
+    # 指定特定类型的细胞
     cell_type = cell  # 替换为你要筛选的细胞类型
 
     # 指定要计算平均表达值的基因

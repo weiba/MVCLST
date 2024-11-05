@@ -13,6 +13,7 @@ from torch_geometric.nn import GCNConv
 import torch.autograd as autograd
 import random
 from sklearn.decomposition import PCA
+from torch.utils.data import TensorDataset, DataLoader
 
 class GraphConvolution(nn.Module):
     def __init__(self, in_features, out_features):
@@ -165,7 +166,6 @@ def train(adata,X,X2,adj_pure,adj_aug, df_meta,n_domains):
     Discriminator1=Discriminator(hidden_dim1).to(device)
     d_optimizer = torch.optim.RMSprop(Discriminator1.parameters(), lr=0.002)
     mse_loss=nn.MSELoss()
-    best_ari = 0.0
     best_features = None
 
     epochs =5000
@@ -202,15 +202,11 @@ def train(adata,X,X2,adj_pure,adj_aug, df_meta,n_domains):
             print("Epoch [{:}/{:}], Loss: {:.4f}".format(epoch, epochs, total_loss.item()))
             print("Loss_rec: {:.4f},g_loss{:.4f},gr_loss{:.4f},con_loss{:.4f}".format(loss_rec, g_loss, loss_gr,loss_con))
         if epoch >800:
-            if epoch % 100 ==0:
-                concatenated_features = torch.cat((vae_z,h,h_private), dim=1)
-                concatenated_features=model.zscore_normalization(concatenated_features)
-                z = concatenated_features.cpu()
-                z=z.detach().numpy()
-                z= sc.pp.scale(z)
-                _,ARI=cluster(adata,z,df_meta,n_domains)
-                if ARI > best_ari:
-                    best_ari = ARI
-                    best_features = z
+            concatenated_features = torch.cat((vae_z,h,h_private), dim=1)
+            concatenated_features=model.zscore_normalization(concatenated_features)
+            z = concatenated_features.cpu()
+            z=z.detach().numpy()
+            z= sc.pp.scale(z)
+            best_features = z
     
     return best_features
